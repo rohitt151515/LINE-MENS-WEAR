@@ -99,15 +99,53 @@ function t(k){return (T[k]||[k])[lang]||T[k][0]}
 function ld(k,d){try{const v=LS.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
 function sv(k,v){try{LS.setItem(k,JSON.stringify(v))}catch(e){}}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-/* ===== Placeholder catalogue (replace with DB data) ===== */
+/* ===== Supabase product catalogue ===== */
 const COL={Black:"#1a1a1a",White:"#f1f1ef",Grey:"#8c8c8c",Navy:"#24304a",Olive:"#5d6340"};
 function img(c,v){const h=COL[c]||"#999";const b=["M70 40l40-18c8 16 52 16 60 0l40 18 38 60-34 18-14-22v150H80V96l-14 22-34-18z","M70 40l40-18 60 20 60-20 40 18 38 60-34 18-14-22v150H80V96l-14 22-34-18z","M110 22c8 16 52 16 60 0l-6 34-24 40-24-40z"][v%3];
-return "data:image/svg+xml;utf8,"+encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 400'><rect width='320' height='400' fill='#e9e9e7'/><g transform='translate(0 40)'><path d='${b}' fill='${h}' stroke='#0003'/></g><text x='160' y='388' font-size='13' text-anchor='middle' fill='#777' font-family='sans-serif'>PLACEHOLDER</text></svg>`)}
-const names=[["Oxford Shirt","Shirts"],["Linen Shirt","Shirts"],["Classic Formal Shirt","Shirts"],["Everyday Tee","T-Shirts"],["Polo Tee","T-Shirts"],["Chino Trousers","Trousers"],["Slim Trousers","Trousers"],["Festive Kurta","Ethnic"],["Nehru Jacket","Jackets"],["Overshirt","Jackets"],["Check Shirt","Shirts"],["Henley Tee","T-Shirts"]];
-const P=names.map((n,i)=>{const cs=Object.keys(COL),c=[cs[i%5],cs[(i+2)%5]];const pr=[999,1299,1499,699,899,1699,1599,2499,3499,2299,1199,799][i];
-return{id:"p"+(i+1),slug:"p"+(i+1),name:n[0],cat:n[1],price:pr,sale:i%3==0?Math.round(pr*.85):0,colors:c,sizes:["S","M","L","XL","XXL"],stock:{S:5,M:8,L:i==4?0:6,XL:3,XXL:i%4==0?0:2},isNew:i>=6,pop:100-i*7,
-desc:"Placeholder description. Replace with the real product details supplied by the owner.",imgs:[0,1,2].map(v=>img(c[0],v))}});
-const ids=P.map(p=>p.id);
+return "data:image/svg+xml;utf8,"+encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 400'><rect width='320' height='400' fill='#e9e9e7'/><g transform='translate(0 40)'><path d='${b}' fill='${h}' stroke='#0003'/></g><text x='160' y='388' font-size='13' text-anchor='middle' fill='#777' font-family='sans-serif'>IMAGE NOT ADDED</text></svg>`)}
+let P=[];
+let productsLoading=true;
+let productsError="";
+const ids=[];
+async function loadStoreProducts(){
+  try{
+    const {createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+    const supabase=createClient(
+      "https://vhlgcahmnjmvuosocxfq.supabase.co",
+      "sb_publishable_6KNl5AhaCYKdmpvP8plFDw_-po1otqH"
+    );
+    const {data,error}=await supabase.from("products")
+      .select("id,name,description,category,price,image_url,sizes,colors,size_stock,stock,is_active,created_at")
+      .eq("is_active",true)
+      .order("created_at",{ascending:false});
+    if(error) throw error;
+    P=(data||[]).map(row=>{
+      const sizeStock=(row.size_stock&&typeof row.size_stock==="object")?row.size_stock:{};
+      const sizes=Array.isArray(row.sizes)?row.sizes:[];
+      const stock={};
+      sizes.forEach(size=>stock[size]=Math.max(0,Number(sizeStock[size]||0)));
+      const colors=Array.isArray(row.colors)?row.colors:[];
+      const fallbackColor=colors[0]||"Grey";
+      const created=Date.parse(row.created_at||"")||0;
+      return {
+        id:String(row.id),slug:String(row.id),name:row.name||"Product",
+        cat:row.category||"Other",price:Number(row.price)||0,sale:0,
+        colors,sizes,stock,isNew:created>0&&(Date.now()-created)<30*24*60*60*1000,
+        pop:100,desc:row.description||"",imgs:[row.image_url||img(fallbackColor,0)],
+        createdAt:created
+      };
+    });
+    cart=cart.filter(item=>P.some(product=>product.id===String(item.id)));
+    wish=wish.filter(id=>P.some(product=>product.id===String(id)));
+    sv("lmw_cart",cart);sv("lmw_wish",wish);
+  }catch(error){
+    console.error("Could not load products from Supabase:",error);
+    productsError=error.message||"Could not connect to the product database.";
+  }finally{
+    productsLoading=false;
+    route();
+  }
+}
 /* ===== State ===== */
 let cart=ld("lmw_cart",[]),wish=ld("lmw_wish",[]),orders=ld("lmw_orders",[]),F={cat:"",size:"",color:"",max:"",sort:"pop",q:""};
 function toast(m){const e=document.getElementById("toast");e.textContent=m;e.classList.add("on");setTimeout(()=>e.classList.remove("on"),1800)}
@@ -119,7 +157,7 @@ function wa(text){const l=waLink(text);if(!l){toast("WhatsApp number not set yet
 function card(p){const on=wish.includes(p.id);return `<div class="card"><div class="im"><a href="#product-${p.id}"><img loading="lazy" src="${p.imgs[0]}" alt="${esc(p.name)}"></a></div>${p.sale?'<span class="tag">-15%</span>':''}<button class="heart" aria-label="${t("wish")}" onclick="tw('${p.id}')">${on?"♥":"♡"}</button><a href="#product-${p.id}"><h3>${esc(p.name)}</h3></a><div class="p">${money(price(p))}${p.sale?`<s>${money(p.price)}</s>`:""}</div></div>`}
 function tw(id){wish=wish.includes(id)?wish.filter(x=>x!=id):[...wish,id];sv("lmw_wish",wish);badge();route()}
 function ship(sub,mode){return mode=="pickup"||sub==0||sub>=CONFIG.freeShipOver?0:CONFIG.shipFee}
-function cartSub(){return cart.reduce((a,i)=>{const p=P.find(x=>x.id==i.id);return a+price(p)*i.qty},0)}
+function cartSub(){return cart.reduce((a,i)=>{const p=P.find(x=>x.id==i.id);return p?a+price(p)*i.qty:a},0)}
 function shopList(list){const f=document.getElementById("res");f.innerHTML=list.length?list.map(card).join(""):`<p>${t("empty")}</p>`}
 /* ===== Pages ===== */
 const pages={
@@ -191,12 +229,16 @@ document.getElementById("app").innerHTML=`<h2>Order ${o.id} received</h2><div cl
 function chrome(){const L=[["home","home"],["shop","shop"],["new","newa"],["best","best"],["categories","cats"],["about","about"],["contact","contact"],["faq","faq"]];
 const h=location.hash.slice(1)||"home";document.getElementById("nav").innerHTML=L.map(([r,k])=>`<a href="#${r}" class="${h==r?"on":""}">${t(k)}</a>`).join("");
 document.getElementById("q").placeholder=t("search");document.getElementById("foot").innerHTML=`<div><b>LINE MENS WEAR</b><br>${t("herop")}</div><div><a href="#account">${t("account")}</a><a href="#orders">${t("orders")}</a><a href="#wishlist">${t("wish")}</a></div><div><a href="#privacy">Privacy Policy</a><a href="#terms">Terms and Conditions</a><a href="#shipping">Shipping Policy</a><a href="#returns">Return and Exchange Policy</a></div>`;badge()}
-function route(){const h=location.hash.slice(1)||"home";let html;
+function route(){
+ const h=location.hash.slice(1)||"home";let html;
+ if(productsLoading){document.getElementById("app").innerHTML='<div class="note">Loading products…</div>';chrome();return}
+ if(productsError&&!P.length){document.getElementById("app").innerHTML=`<h2>Products are temporarily unavailable</h2><p>${esc(productsError)}</p><p>Please refresh the page or try again later.</p>`;chrome();return}
+
 if(h.startsWith("product-"))html=pages.product(h.slice(8));else if(h=="new")html=pages.shop("new");else if(h=="best")html=pages.shop("best");else if(h=="shop")html=pages.shop();else if(pages[h])html=pages[h]();else html=`<h2>404</h2><a href="#home">${t("home")}</a>`;
 document.getElementById("app").innerHTML=html;chrome();if(h=="checkout"&&cart.length)upd()}
 window.addEventListener("hashchange",()=>{window.scrollTo(0,0);route()});
 document.getElementById("lang").onchange=e=>{lang=+e.target.value;sv("lmw_lang",lang);document.documentElement.lang=["en","hi","mr","gu","kn"][lang];route()};
 document.getElementById("q").onkeydown=e=>{if(e.key=="Enter"){F.q=e.target.value;location.hash=="#shop"?route():location.hash="shop"}};
 document.getElementById("wa").onclick=()=>wa("Hello LINE MENS WEAR, I have an enquiry.");
-lang=ld("lmw_lang",0);document.getElementById("lang").value=lang;route();
+lang=ld("lmw_lang",0);document.getElementById("lang").value=lang;route();loadStoreProducts();
 </script></body></html>
