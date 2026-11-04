@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LINE MENS WEAR — Admin</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#171717;--mut:#666;--line:#ddd;--gold:#8a6d3b;--card:#fff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,Arial,sans-serif}
+header{background:#171717;color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+header strong{letter-spacing:.12em}.wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+.card{background:var(--card);border:1px solid var(--line);padding:20px;margin:16px 0;border-radius:8px}
+h1{font-size:26px}h2{font-size:20px;margin-top:0}label{display:block;font-size:14px;color:var(--mut);margin:10px 0 4px}
+input,textarea,select{width:100%;padding:11px;border:1px solid #bbb;border-radius:5px;background:white;color:#171717;font:inherit}
+textarea{min-height:75px}button{border:0;background:#171717;color:#fff;padding:11px 16px;border-radius:5px;cursor:pointer;font:inherit;margin:5px 5px 5px 0}
+button.secondary{background:white;color:#171717;border:1px solid #aaa}button.danger{background:#9d2525}
+.muted{color:var(--mut);font-size:14px}.hidden{display:none!important}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.row{border-top:1px solid var(--line);padding:14px 0;display:flex;gap:14px;align-items:center;flex-wrap:wrap}.row img{width:72px;height:86px;object-fit:cover;background:#eee;border-radius:4px}
+.row .grow{flex:1;min-width:150px}.status{font-size:13px;color:var(--gold)}.notice{padding:12px;background:#f5efdf;border-left:3px solid var(--gold);margin:12px 0}
+#message{min-height:24px;color:#8a3b22}@media(max-width:600px){.card{padding:15px}}
+</style></head><body>
+<header><strong>LINE MENS WEAR · ADMIN</strong><span id="sessionLabel">Not signed in</span></header>
+<main class="wrap">
+<section id="loginPanel" class="card"><h1>Admin login</h1><p class="muted">Sign in with the admin email created in Supabase Authentication → Users.</p>
+<label>Email</label><input id="email" type="email" autocomplete="username"><label>Password</label><input id="password" type="password" autocomplete="current-password">
+<button id="loginBtn">Sign in</button><p id="loginMessage" class="muted" role="status"></p></section>
+<section id="dashboard" class="hidden">
+<div class="card"><h1>Dashboard</h1><p>Manage products, inventory and customer orders.</p><button id="refreshBtn" class="secondary">Refresh data</button><button id="logoutBtn" class="secondary">Sign out</button><div id="message" role="status"></div>
+<div class="notice">Admin access is checked against your Supabase admin role. Never put a Supabase secret key in this file.</div></div>
+<div class="card"><h2 id="formTitle">Add a product</h2><input id="productId" type="hidden"><div class="grid">
+<div><label>Product name</label><input id="pName" maxlength="120"></div><div><label>Category</label><input id="pCategory" maxlength="60" placeholder="Shirts, T-Shirts, Trousers"></div>
+<div><label>Price (₹)</label><input id="pPrice" type="number" min="0" step="0.01"></div><div><label>Total stock quantity</label><input id="pStock" type="number" min="0" step="1" value="0"></div>
+<div><label>Sizes (comma separated)</label><input id="pSizes" placeholder="S, M, L, XL"></div><div><label>Colours (comma separated)</label><input id="pColors" placeholder="Black, White"></div></div>
+<label>Description</label><textarea id="pDescription"></textarea><label>Product image</label><input id="pImage" type="file" accept="image/jpeg,image/png,image/webp">
+<p class="muted">Image upload requires a public Supabase Storage bucket named <b>product-images</b> with admin-only upload policies.</p>
+<label><input id="pActive" type="checkbox" checked style="width:auto"> Active and visible to customers</label>
+<button id="saveProductBtn">Save product</button><button id="cancelEditBtn" class="secondary">Clear form</button></div>
+<div class="card"><h2>Products</h2><div id="productsList" class="muted">Loading…</div></div>
+<div class="card"><h2>Customer orders</h2><p class="muted">Mark an order paid only after verifying it in the payment provider's records.</p><div id="ordersList" class="muted">Loading…</div></div>
+</section></main>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+const SUPABASE_URL="https://vhlgcahmnjmvuosocxfq.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_6KNl5AhaCYKdmpvP8plFDw_-po1otqH";
+const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY),$=id=>document.getElementById(id);
+let currentProducts=[];
+function say(m,where="message"){$(where).textContent=m}
+function signedOut(){$("dashboard").classList.add("hidden");$("loginPanel").classList.remove("hidden");$("sessionLabel").textContent="Not signed in"}
+async function requireAdmin(){
+ const {data:{user},error}=await supabase.auth.getUser();if(error||!user){signedOut();return}
+ const {data,error:roleError}=await supabase.rpc("is_admin");
+ if(roleError||data!==true){await supabase.auth.signOut();signedOut();say("This account does not have admin permission.","loginMessage");return}
+ $("loginPanel").classList.add("hidden");$("dashboard").classList.remove("hidden");$("sessionLabel").textContent=user.email||"Admin";await refreshAll()
+}
+$("loginBtn").onclick=async()=>{say("","loginMessage");$("loginBtn").disabled=true;const {error}=await supabase.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});$("loginBtn").disabled=false;if(error)say(error.message,"loginMessage");else await requireAdmin()};
+$("logoutBtn").onclick=async()=>{await supabase.auth.signOut();signedOut()};
+$("refreshBtn").onclick=refreshAll;
+supabase.auth.onAuthStateChange((_event,session)=>{if(!session)signedOut()});
+await requireAdmin();
+async function refreshAll(){say("Loading…");await Promise.all([loadProducts(),loadOrders()]);say("Refreshed.")}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function loadProducts(){
+ const {data,error}=await supabase.from("products").select("*").order("created_at",{ascending:false});
+ if(error){$("productsList").textContent=error.message;return}currentProducts=data||[];
+ $("productsList").innerHTML=currentProducts.length?currentProducts.map(p=>`<div class="row">${p.image_url?`<img src="${esc(p.image_url)}" alt="">`:""}<div class="grow"><b>${esc(p.name)}</b><br>₹${Number(p.price).toLocaleString("en-IN")} · Stock: ${Number(p.stock||0)}<br><span class="status">${p.is_active?"Active":"Hidden"}</span></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="danger" data-delete="${p.id}">Delete</button></div>`).join(""):"No products yet.";
+ $("productsList").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>editProduct(b.dataset.edit));
+ $("productsList").querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>deleteProduct(b.dataset.delete));
+}
+function editProduct(id){const p=currentProducts.find(x=>String(x.id)===String(id));if(!p)return;
+ $("productId").value=p.id;$("pName").value=p.name||"";$("pCategory").value=p.category||"";$("pPrice").value=p.price??0;$("pStock").value=p.stock??0;
+ $("pSizes").value=(p.sizes||[]).join(", ");$("pColors").value=(p.colors||[]).join(", ");$("pDescription").value=p.description||"";$("pActive").checked=!!p.is_active;$("pImage").value="";$("formTitle").textContent="Edit product";window.scrollTo({top:0,behavior:"smooth"})}
+function clearForm(){["productId","pName","pCategory","pPrice","pSizes","pColors","pDescription","pImage"].forEach(id=>$(id).value="");$("pStock").value="0";$("pActive").checked=true;$("formTitle").textContent="Add a product"}
+$("cancelEditBtn").onclick=clearForm;
+$("saveProductBtn").onclick=async()=>{
+ say("");const name=$("pName").value.trim(),category=$("pCategory").value.trim(),price=Number($("pPrice").value),stock=Number($("pStock").value);
+ if(!name||!category||!Number.isFinite(price)||price<0||!Number.isInteger(stock)||stock<0){say("Enter a name, category, valid price and whole-number stock.");return}
+ const payload={name,category,price,stock,description:$("pDescription").value.trim(),sizes:$("pSizes").value.split(",").map(x=>x.trim()).filter(Boolean),colors:$("pColors").value.split(",").map(x=>x.trim()).filter(Boolean),is_active:$("pActive").checked};
+ $("saveProductBtn").disabled=true;
+ try{const file=$("pImage").files[0];if(file){if(file.size>5*1024*1024)throw Error("Choose an image smaller than 5 MB.");if(!["image/jpeg","image/png","image/webp"].includes(file.type))throw Error("Use JPG, PNG or WEBP.");
+ const ext=file.name.split(".").pop().toLowerCase(),path=crypto.randomUUID()+"."+ext;const {error}=await supabase.storage.from("product-images").upload(path,file,{contentType:file.type});if(error)throw error;payload.image_url=supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl}
+ const id=$("productId").value,result=id?await supabase.from("products").update(payload).eq("id",id):await supabase.from("products").insert(payload);if(result.error)throw result.error;clearForm();await loadProducts();say("Product saved.")
+ }catch(e){say(e.message||"Could not save product.")}finally{$("saveProductBtn").disabled=false}
+};
+async function deleteProduct(id){if(!confirm("Delete this product?"))return;const {error}=await supabase.from("products").delete().eq("id",id);if(error)say(error.message);else{await loadProducts();say("Product deleted.")}}
+async function loadOrders(){
+ const {data:orders,error}=await supabase.from("orders").select("*").order("created_at",{ascending:false}).limit(100);if(error){$("ordersList").textContent=error.message;return}
+ if(!orders?.length){$("ordersList").textContent="No orders yet.";return}
+ const {data:items,error:itemError}=await supabase.from("order_items").select("*").in("order_id",orders.map(o=>o.id));if(itemError){$("ordersList").textContent=itemError.message;return}
+ $("ordersList").innerHTML=orders.map(o=>{const its=(items||[]).filter(i=>String(i.order_id)===String(o.id));return `<div class="row"><div class="grow"><b>Order #${o.id}</b> · ${new Date(o.created_at).toLocaleString()}<br>${its.map(i=>`${esc(i.product_name)} × ${i.quantity}`).join(", ")}<br>Total ₹${Number(o.total_amount).toLocaleString("en-IN")}<br><span class="status">${esc(o.status||"pending")}</span></div><select data-status="${o.id}" aria-label="Order status">${["pending","processing","shipped","delivered","cancelled"].map(s=>`<option value="${s}" ${o.status===s?"selected":""}>${s}</option>`).join("")}</select><button data-update="${o.id}">Update</button></div>`}).join("");
+ $("ordersList").querySelectorAll("[data-update]").forEach(b=>b.onclick=async()=>{const id=b.dataset.update,status=$(`select[data-status="${id}"]`).value;const {error}=await supabase.from("orders").update({status}).eq("id",id);if(error)say(error.message);else{say("Order updated.");await loadOrders()}});
+}
+</script></body></html>
