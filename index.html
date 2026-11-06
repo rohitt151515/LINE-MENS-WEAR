@@ -59,6 +59,7 @@ footer .c{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
 <div class="tools">
 <input id="q" type="search" aria-label="Search">
 <select id="lang" aria-label="Language"><option value="0">English</option><option value="1">हिन्दी</option><option value="2">मराठी</option><option value="3">ગુજરાતી</option><option value="4">ಕನ್ನಡ</option></select>
+<a class="ib" href="#account" id="ac">Account</a>
 <a class="ib" href="#wishlist" id="wc" aria-label="Wishlist">♡</a>
 <a class="ib" href="#cart" id="cc" aria-label="Cart">Bag</a>
 </div></div></header>
@@ -106,14 +107,21 @@ return "data:image/svg+xml;utf8,"+encodeURIComponent(`<svg xmlns='http://www.w3.
 let P=[];
 let productsLoading=true;
 let productsError="";
+let supabase=null;
+let authSession=null;
 const ids=[];
 async function loadStoreProducts(){
   try{
-    const {createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-    const supabase=createClient(
-      "https://vhlgcahmnjmvuosocxfq.supabase.co",
-      "sb_publishable_6KNl5AhaCYKdmpvP8plFDw_-po1otqH"
-    );
+    if(!supabase){
+      const {createClient}=await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+      supabase=createClient(
+        "https://vhlgcahmnjmvuosocxfq.supabase.co",
+        "sb_publishable_6KNl5AhaCYKdmpvP8plFDw_-po1otqH"
+      );
+      const {data}=await supabase.auth.getSession();
+      authSession=data.session;
+      supabase.auth.onAuthStateChange((_event,session)=>{authSession=session;});
+    }
     const {data,error}=await supabase.from("products")
       .select("id,name,description,category,price,image_url,sizes,colors,size_stock,stock,is_active,created_at")
       .eq("is_active",true)
@@ -201,8 +209,35 @@ return `<h2>${t("checkout")}</h2><div class="split"><form class="f" id="cf" onsu
 <div class="err" id="er" role="alert"></div><button class="btn">${t("place")}</button></form>
 <div class="note" id="sum"></div></div>`},
 wishlist(){const l=P.filter(p=>wish.includes(p.id));return `<h2>${t("wish")}</h2>${l.length?`<div class="grid">${l.map(card).join("")}</div>`:`<p>${t("empty")}</p>`}`},
-account(){return `<h2>${t("account")}</h2><div class="note"><b>Login, sign-up, saved addresses and profile need the backend</b>, which is not built yet. Browsing, cart, wishlist and guest checkout work without an account.</div><div class="f" style="max-width:380px"><p><input placeholder="${t("email")} / ${t("phone")}" disabled></p><p><input type="password" placeholder="Password" disabled></p><button class="btn" disabled>${t("login")}</button></div>`},
-orders(){return `<h2>${t("orders")}</h2><p class="ph">Saved in this browser only until the backend exists.</p>${orders.length?orders.map(o=>`<div class="row"><div class="g"><b>${o.id}</b> · ${new Date(o.at).toLocaleDateString()}<br>${o.items.map(i=>esc(i)).join(", ")}<br>${t("total")}: ${money(o.total)} · ${o.mode=="pickup"?t("pick"):t("homed")}<br><span class="ph">Status: awaiting payment confirmation (not paid)</span></div></div>`).join(""):`<p>${t("empty")}</p>`}`},
+account(){
+  if(authSession){
+    const customerName=authSession.user.user_metadata?.full_name||"Customer";
+    return `<h2>${t("account")}</h2><div class="note">You are signed in as <b>${esc(customerName)}</b><br>${esc(authSession.user.email||"")}</div>
+    ${cart.length?'<p><a class="btn" href="#checkout">Continue to checkout</a></p>':''}
+    <p><button class="btn o" onclick="customerLogout()">Log out</button></p>`;
+  }
+  return `<h2>${t("account")}</h2>
+  <div class="note">Create a customer account or sign in. Use an email address you can access.</div>
+  <div class="f" style="max-width:420px">
+    <h3>Sign in</h3>
+    <form onsubmit="return customerLogin(event)">
+      <p><label>Email<input name="email" type="email" autocomplete="email" required></label></p>
+      <p><label>Password<input name="password" type="password" autocomplete="current-password" minlength="6" required></label></p>
+      <button class="btn">Login</button>
+    </form>
+    <hr style="border:0;border-top:1px solid var(--line);margin:24px 0">
+    <h3>Create account</h3>
+    <form onsubmit="return customerSignup(event)">
+      <p><label>Full name<input name="name" autocomplete="name" required></label></p>
+      <p><label>Email<input name="email" type="email" autocomplete="email" required></label></p>
+      <p><label>Password (at least 6 characters)<input name="password" type="password" autocomplete="new-password" minlength="6" required></label></p>
+      <button class="btn">Sign up</button>
+    </form>
+    <p style="margin-top:20px"><button class="ib" onclick="customerReset()">Forgot password?</button></p>
+    <p class="err" id="authmsg" role="status" aria-live="polite"></p>
+  </div>`;
+},
+orders(){return `<h2>${t("orders")}</h2><p class="ph">Saved in this browser only until the backend exists.</p>${orders.length?orders.map(o=>`<div class="row"><div class="g"><b>${o.id}</b> · ${new Date(o.at).toLocaleDateString()}<br>${o.items.map(i=>esc(i)).join(", ")}<br>Customer: ${esc(o.customer_name||"")} · ${esc(o.customer_email||"")}<br>Phone: ${esc(o.phone||"")}<br>${o.mode=="home"?"Address: "+esc(o.address||"")+", "+esc(o.city||"")+" "+esc(o.pin||""):"Store pickup"}<br>${t("total")}: ${money(o.total)} · ${o.mode=="pickup"?t("pick"):t("homed")}<br><span class="ph">Status: awaiting payment confirmation (not paid)</span></div></div>`).join(""):`<p>${t("empty")}</p>`}`},
 about(){return `<h2>${t("about")}</h2><p class="ph">Placeholder. Brand story to be supplied.</p>`},
 contact(){return `<h2>${t("contact")}</h2><p class="ph">Placeholder. Store address, phone and email to be supplied.</p><button class="btn" onclick="wa('Hello LINE MENS WEAR, I need help with an order.')">WhatsApp</button>`},
 faq(){return `<h2>${t("faq")}</h2><details open><summary>Can I pay cash on delivery?</summary><p>No. Online (UPI) payment is coming; until then the store confirms payment with you directly.</p></details><details><summary>Can I pick up my order?</summary><p>Yes, choose store pickup at checkout.</p></details>`},
@@ -216,21 +251,71 @@ function qty(n,v){const i=cart[n],p=P.find(x=>x.id==i.id);i.qty=Math.max(1,Math.
 function upd(){const f=document.getElementById("cf"),m=f.mode.value,sub=cartSub(),d=ship(sub,m);document.getElementById("ad").hidden=m=="pickup";document.getElementById("pu").hidden=m!="pickup";
 document.getElementById("sum").innerHTML=`<p>${t("sub")}: ${money(sub)}</p><p>${t("del")}: ${d?money(d):"Free"}</p><p><b>${t("total")}: ${money(sub+d)}</b></p>`}
 function placeOrder(e){e.preventDefault();const f=e.target,v=n=>f[n].value.trim(),m=f.mode.value,er=[];
+if(!authSession){location.hash="account";toast("Please sign in before placing an order.");return false;}
 if(v("name").length<2)er.push(t("name"));if(!/^[6-9]\d{9}$/.test(v("phone").replace(/[\s+-]/g,"").replace(/^91/,"")))er.push(t("phone")+" (10-digit Indian mobile)");
 if(v("email")&&!/^\S+@\S+\.\S+$/.test(v("email")))er.push(t("email"));
 if(m=="home"){if(v("addr").length<8)er.push(t("addr"));if(v("city").length<2)er.push(t("city"));if(!/^\d{6}$/.test(v("pin")))er.push(t("pin")+" (6 digits)")}
 document.getElementById("er").textContent=er.length?"Please check: "+er.join(", "):"";if(er.length)return false;
 const sub=cartSub(),d=ship(sub,m),items=cart.map(i=>{const p=P.find(x=>x.id==i.id);return `${p.name} ${i.size}/${i.color} x${i.qty}`});
-const o={id:"LMW-"+Date.now().toString(36).toUpperCase(),at:Date.now(),items,total:sub+d,mode:m};orders.unshift(o);sv("lmw_orders",orders);
+const o={id:"LMW-"+Date.now().toString(36).toUpperCase(),at:Date.now(),items,total:sub+d,mode:m,customer_id:authSession.user.id,customer_name:v("name"),customer_email:authSession.user.email||v("email"),phone:v("phone"),address:m=="home"?v("addr"):"",city:m=="home"?v("city"):"",pin:m=="home"?v("pin"):""};orders.unshift(o);sv("lmw_orders",orders);
 const msg=`New order ${o.id}\n${items.join("\n")}\nTotal ${money(o.total)} (unpaid)\n${v("name")}, ${v("phone")}\n${m=="pickup"?"Store pickup":v("addr")+", "+v("city")+" "+v("pin")}`;
 cart=[];sv("lmw_cart",cart);badge();
 document.getElementById("app").innerHTML=`<h2>Order ${o.id} received</h2><div class="note">Status: awaiting payment confirmation. Nothing has been charged. ${CONFIG.whatsapp?"":'<span class="ph">WhatsApp number not set yet, so the order is saved in this browser only.</span>'}</div><button class="btn" onclick='wa(${JSON.stringify(msg)})'>Send order on WhatsApp</button> <a class="btn o" href="#orders">${t("orders")}</a>`;return false}
+/* ===== Customer authentication ===== */
+function authMessage(message,isError=false){
+  const el=document.getElementById("authmsg");
+  if(el){el.textContent=message;el.style.color=isError?"#c0392b":"#287a43";}
+  else toast(message);
+}
+async function customerLogin(e){
+  e.preventDefault();
+  const f=e.target, email=f.email.value.trim(), password=f.password.value;
+  try{
+    const {error}=await supabase.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    const {data}=await supabase.auth.getSession();authSession=data.session;
+    route();toast("You are now signed in.");
+  }catch(err){authMessage(err.message||"Could not sign in.",true);}
+  return false;
+}
+async function customerSignup(e){
+  e.preventDefault();
+  const f=e.target, name=f.name.value.trim(), email=f.email.value.trim(), password=f.password.value;
+  try{
+    const {data,error}=await supabase.auth.signUp({
+      email,password,options:{data:{full_name:name}}
+    });
+    if(error) throw error;
+    if(data.session){authSession=data.session;route();toast("Your account is ready.");}
+    else authMessage("Account created. Check your email for a confirmation link before signing in.");
+  }catch(err){authMessage(err.message||"Could not create account.",true);}
+  return false;
+}
+async function customerReset(){
+  const email=prompt("Enter the email address registered to your account:");
+  if(!email)return;
+  try{
+    const {error}=await supabase.auth.resetPasswordForEmail(email.trim(),{
+      redirectTo:location.origin+location.pathname+"#account"
+    });
+    if(error) throw error;
+    authMessage("If an account exists for that email, a password-reset link has been sent.");
+  }catch(err){authMessage(err.message||"Could not send reset email.",true);}
+}
+async function customerLogout(){
+  try{
+    const {error}=await supabase.auth.signOut();
+    if(error) throw error;
+    authSession=null;route();toast("You have been logged out.");
+  }catch(err){toast(err.message||"Could not log out.");}
+}
 /* ===== Router / chrome ===== */
 function chrome(){const L=[["home","home"],["shop","shop"],["new","newa"],["best","best"],["categories","cats"],["about","about"],["contact","contact"],["faq","faq"]];
 const h=location.hash.slice(1)||"home";document.getElementById("nav").innerHTML=L.map(([r,k])=>`<a href="#${r}" class="${h==r?"on":""}">${t(k)}</a>`).join("");
 document.getElementById("q").placeholder=t("search");document.getElementById("foot").innerHTML=`<div><b>LINE MENS WEAR</b><br>${t("herop")}</div><div><a href="#account">${t("account")}</a><a href="#orders">${t("orders")}</a><a href="#wishlist">${t("wish")}</a></div><div><a href="#privacy">Privacy Policy</a><a href="#terms">Terms and Conditions</a><a href="#shipping">Shipping Policy</a><a href="#returns">Return and Exchange Policy</a></div>`;badge()}
 function route(){
  const h=location.hash.slice(1)||"home";let html;
+ if(h=="checkout"&&!authSession){location.hash="account";toast("Please sign in or create an account before checkout.");return;}
  if(productsLoading){document.getElementById("app").innerHTML='<div class="note">Loading products…</div>';chrome();return}
  if(productsError&&!P.length){document.getElementById("app").innerHTML=`<h2>Products are temporarily unavailable</h2><p>${esc(productsError)}</p><p>Please refresh the page or try again later.</p>`;chrome();return}
 
