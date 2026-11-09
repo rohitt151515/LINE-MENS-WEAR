@@ -59,7 +59,6 @@ footer .c{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
 <div class="tools">
 <input id="q" type="search" aria-label="Search">
 <select id="lang" aria-label="Language"><option value="0">English</option><option value="1">हिन्दी</option><option value="2">मराठी</option><option value="3">ગુજરાતી</option><option value="4">ಕನ್ನಡ</option></select>
-<a class="ib" href="#account" id="ac">Account</a>
 <a class="ib" href="#wishlist" id="wc" aria-label="Wishlist">♡</a>
 <a class="ib" href="#cart" id="cc" aria-label="Cart">Bag</a>
 </div></div></header>
@@ -237,7 +236,7 @@ account(){
     <p class="err" id="authmsg" role="status" aria-live="polite"></p>
   </div>`;
 },
-orders(){return `<h2>${t("orders")}</h2><p class="ph">Saved in this browser only until the backend exists.</p>${orders.length?orders.map(o=>`<div class="row"><div class="g"><b>${o.id}</b> · ${new Date(o.at).toLocaleDateString()}<br>${o.items.map(i=>esc(i)).join(", ")}<br>Customer: ${esc(o.customer_name||"")} · ${esc(o.customer_email||"")}<br>Phone: ${esc(o.phone||"")}<br>${o.mode=="home"?"Address: "+esc(o.address||"")+", "+esc(o.city||"")+" "+esc(o.pin||""):"Store pickup"}<br>${t("total")}: ${money(o.total)} · ${o.mode=="pickup"?t("pick"):t("homed")}<br><span class="ph">Status: awaiting payment confirmation (not paid)</span></div></div>`).join(""):`<p>${t("empty")}</p>`}`},
+orders(){return `<h2>${t("orders")}</h2><p class="ph">Recent orders placed from this browser.</p>${orders.length?orders.map(o=>`<div class="row"><div class="g"><b>${o.id}</b> · ${new Date(o.at).toLocaleDateString()}<br>${o.items.map(i=>esc(i)).join(", ")}<br>Customer: ${esc(o.customer_name||"")} · ${esc(o.customer_email||"")}<br>Phone: ${esc(o.phone||"")}<br>${o.mode=="home"?"Address: "+esc(o.address||"")+", "+esc(o.city||"")+" "+esc(o.pin||""):"Store pickup"}<br>${t("total")}: ${money(o.total)} · ${o.mode=="pickup"?t("pick"):t("homed")}<br><span class="ph">Status: awaiting payment confirmation (not paid)</span></div></div>`).join(""):`<p>${t("empty")}</p>`}`},
 about(){return `<h2>${t("about")}</h2><p class="ph">Placeholder. Brand story to be supplied.</p>`},
 contact(){return `<h2>${t("contact")}</h2><p class="ph">Placeholder. Store address, phone and email to be supplied.</p><button class="btn" onclick="wa('Hello LINE MENS WEAR, I need help with an order.')">WhatsApp</button>`},
 faq(){return `<h2>${t("faq")}</h2><details open><summary>Can I pay cash on delivery?</summary><p>No. Online (UPI) payment is coming; until then the store confirms payment with you directly.</p></details><details><summary>Can I pick up my order?</summary><p>Yes, choose store pickup at checkout.</p></details>`},
@@ -250,17 +249,52 @@ if(e)e.qty=n;else cart.push({id,size:s.size,color:s.color,qty:1});sv("lmw_cart",
 function qty(n,v){const i=cart[n],p=P.find(x=>x.id==i.id);i.qty=Math.max(1,Math.min(p.stock[i.size],parseInt(v)||1));sv("lmw_cart",cart);route()}
 function upd(){const f=document.getElementById("cf"),m=f.mode.value,sub=cartSub(),d=ship(sub,m);document.getElementById("ad").hidden=m=="pickup";document.getElementById("pu").hidden=m!="pickup";
 document.getElementById("sum").innerHTML=`<p>${t("sub")}: ${money(sub)}</p><p>${t("del")}: ${d?money(d):"Free"}</p><p><b>${t("total")}: ${money(sub+d)}</b></p>`}
-function placeOrder(e){e.preventDefault();const f=e.target,v=n=>f[n].value.trim(),m=f.mode.value,er=[];
+async function placeOrder(e){
+e.preventDefault();
+const f=e.target,v=n=>f[n].value.trim(),m=f.mode.value,er=[];
 if(!authSession){location.hash="account";toast("Please sign in before placing an order.");return false;}
-if(v("name").length<2)er.push(t("name"));if(!/^[6-9]\d{9}$/.test(v("phone").replace(/[\s+-]/g,"").replace(/^91/,"")))er.push(t("phone")+" (10-digit Indian mobile)");
+const phone=v("phone").replace(/\D/g,"").replace(/^91/,"");
+if(v("name").length<2)er.push(t("name"));
+if(!/^[6-9]\d{9}$/.test(phone))er.push(t("phone")+" (10-digit Indian mobile)");
 if(v("email")&&!/^\S+@\S+\.\S+$/.test(v("email")))er.push(t("email"));
-if(m=="home"){if(v("addr").length<8)er.push(t("addr"));if(v("city").length<2)er.push(t("city"));if(!/^\d{6}$/.test(v("pin")))er.push(t("pin")+" (6 digits)")}
-document.getElementById("er").textContent=er.length?"Please check: "+er.join(", "):"";if(er.length)return false;
-const sub=cartSub(),d=ship(sub,m),items=cart.map(i=>{const p=P.find(x=>x.id==i.id);return `${p.name} ${i.size}/${i.color} x${i.qty}`});
-const o={id:"LMW-"+Date.now().toString(36).toUpperCase(),at:Date.now(),items,total:sub+d,mode:m,customer_id:authSession.user.id,customer_name:v("name"),customer_email:authSession.user.email||v("email"),phone:v("phone"),address:m=="home"?v("addr"):"",city:m=="home"?v("city"):"",pin:m=="home"?v("pin"):""};orders.unshift(o);sv("lmw_orders",orders);
-const msg=`New order ${o.id}\n${items.join("\n")}\nTotal ${money(o.total)} (unpaid)\n${v("name")}, ${v("phone")}\n${m=="pickup"?"Store pickup":v("addr")+", "+v("city")+" "+v("pin")}`;
-cart=[];sv("lmw_cart",cart);badge();
-document.getElementById("app").innerHTML=`<h2>Order ${o.id} received</h2><div class="note">Status: awaiting payment confirmation. Nothing has been charged. ${CONFIG.whatsapp?"":'<span class="ph">WhatsApp number not set yet, so the order is saved in this browser only.</span>'}</div><button class="btn" onclick='wa(${JSON.stringify(msg)})'>Send order on WhatsApp</button> <a class="btn o" href="#orders">${t("orders")}</a>`;return false}
+if(m=="home"){
+  if(v("addr").length<8)er.push(t("addr"));
+  if(v("city").length<2)er.push(t("city"));
+  if(!/^\d{6}$/.test(v("pin")))er.push(t("pin")+" (6 digits)");
+}
+const errorBox=document.getElementById("er");
+errorBox.textContent=er.length?"Please check: "+er.join(", "):"";
+if(er.length)return false;
+if(!cart.length){errorBox.textContent="Your cart is empty.";return false;}
+const items=cart.map(i=>{
+  const p=P.find(x=>x.id==i.id);
+  return `${p?p.name:"Product"} ${i.size}/${i.color} x${i.qty}`;
+});
+try{
+  const {data,error}=await supabase.rpc("place_order",{
+    p_customer_name:v("name"),
+    p_phone:phone,
+    p_email:v("email")||null,
+    p_delivery_mode:m,
+    p_delivery_address:m=="home"?v("addr"):"",
+    p_city:m=="home"?v("city"):"",
+    p_pincode:m=="home"?v("pin"):"",
+    p_items:cart.map(i=>({product_id:Number(i.id),quantity:Number(i.qty),size:i.size,color:i.color||""}))
+  });
+  if(error)throw error;
+  if(!data||data.success!==true)throw new Error("The order could not be confirmed. Please try again.");
+  const orderId="LMW-"+data.order_id;
+  const o={id:orderId,at:Date.now(),items,total:Number(data.total),mode:m};
+  orders.unshift(o);sv("lmw_orders",orders);
+  const msg=`New order ${orderId}\n${items.join("\n")}\nTotal ${money(o.total)} (payment not collected)\n${v("name")}, ${phone}\n${m=="pickup"?"Store pickup":v("addr")+", "+v("city")+" "+v("pin")}`;
+  cart=[];sv("lmw_cart",cart);badge();
+  document.getElementById("app").innerHTML=`<h2>Order ${esc(orderId)} received</h2><div class="note">Your order has been saved successfully. Status: pending. No payment has been collected. The store will contact you to confirm payment and delivery.</div>${CONFIG.whatsapp?`<p><button class="btn" onclick='wa(${JSON.stringify(msg)})'>Send order on WhatsApp</button></p>`:""}<p><a class="btn o" href="#orders">${t("orders")}</a></p>`;
+}catch(error){
+  console.error("Order submission failed:",error);
+  errorBox.textContent=error.message||"Could not place your order. Please try again.";
+}
+return false;
+}
 /* ===== Customer authentication ===== */
 function authMessage(message,isError=false){
   const el=document.getElementById("authmsg");
